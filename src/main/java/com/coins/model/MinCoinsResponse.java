@@ -1,4 +1,4 @@
-package com.coins.service;
+package com.coins.model;
 
 import java.util.Map;
 
@@ -7,37 +7,37 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class MinCoinsResponse {
 
 	@JsonProperty("coins")
-	Map<Double, Integer> coins;
+	Map<Double, Long> coins;
 
 	@JsonProperty("coins_count")
-	int total;
+	Long total;
 
 	@JsonProperty("requested_amount")
-	double amount;
+	Double amount;
 
 	public MinCoinsResponse() {
 
 	}
 
-	public MinCoinsResponse(Map<Double, Integer> coins, int total, double amount) {
+	public MinCoinsResponse(Map<Double, Long> coins, long total, double amount) {
 		this.coins = coins;
 		this.total = total;
 		this.amount = amount;
 	}
 
-	public Map<Double, Integer> getCoins() {
+	public Map<Double, Long> getCoins() {
 		return coins;
 	}
 
-	public void setCoins(Map<Double, Integer> coins) {
+	public void setCoins(Map<Double, Long> coins) {
 		this.coins = coins;
 	}
 
-	public int getTotal() {
+	public long getTotal() {
 		return total;
 	}
 
-	public void setTotal(int total) {
+	public void setTotal(long total) {
 		this.total = total;
 	}
 

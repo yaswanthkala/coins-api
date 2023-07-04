@@ -1,12 +1,15 @@
 package com.coins.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
 
@@ -15,129 +18,127 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Component;
 
 import com.coins.exception.PossibilitiesNotFoundException;
+import com.coins.model.MinCoinsResponse;
 
 @Component
 @EnableConfigurationProperties
 @ConfigurationProperties(prefix = "app")
 public class CoinsService {
 
-	int[] denominations;
+	Double[] denominations;
 
-	private Map<Double, Integer> coins;
+	private Map<Double, Long> coins;
+
 	private double currentMaxSum = 0.0d;
 
 	@PostConstruct
 	public void display() {
-		denominations = new int[coins.size()];
+		denominations = new Double[coins.size()];
 		int index = 0;
-		for (Map.Entry<Double, Integer> entry : coins.entrySet()) {
+		for (Map.Entry<Double, Long> entry : coins.entrySet()) {
 			double denomination = entry.getKey();
-			Integer count = entry.getValue();
-			dnmns.put((int) (denomination * 100), count);
-			denominations[index++] = (int) (denomination * 100);
+			Long count = entry.getValue();
+			denominations[index++] = denomination;
 			currentMaxSum += (denomination * count);
 		}
 		System.out.println("Current max sum possible : " + currentMaxSum);
-		Arrays.sort(denominations);
+		Arrays.sort(denominations, Collections.reverseOrder());
 	}
 
-	public MinCoinsResponse fetchMinCoinsInfo(BigDecimal value) {
-		if(value.doubleValue() >= currentMaxSum)
-			throw new PossibilitiesNotFoundException();
-		
-		BigDecimal requestedAmount = BigDecimal.valueOf(value.doubleValue());
-		Map<Integer, Integer> minCombinationsMap = minimumCoins((int) (value.doubleValue() * 100));
-		if (minCombinationsMap.size() == 0)
+	public synchronized MinCoinsResponse fetchMinCoinsInfo(BigDecimal value) {
+		if (value.doubleValue() > currentMaxSum)
 			throw new PossibilitiesNotFoundException();
 
+		BigDecimal requestedAmount = BigDecimal.valueOf(value.doubleValue());
+		List<Double> minCoinsList = new ArrayList<>();
+		generateCombinations(denominations, value.doubleValue(), minCoinsList);
+		
+		if (minCoinsList.size() == 0)
+			throw new PossibilitiesNotFoundException();
+
+		Map<Double, Long> minCombinationsMap = getCoinsCountMap(minCoinsList);
+		updateCoins(minCombinationsMap);
+		
 		MinCoinsResponse minCoinsResponse = new MinCoinsResponse();
-		minCoinsResponse.setCoins(minCombinationsMap.entrySet().stream().collect(HashMap::new,
-				(m, e) -> m.put((e.getKey() * 1.0) / 100, e.getValue()), HashMap::putAll));
+		minCoinsResponse.setCoins(minCombinationsMap);
 		minCoinsResponse.setTotal(
-				minCombinationsMap.entrySet().stream().map(e -> e.getValue()).mapToInt(Integer::intValue).sum());
+				minCombinationsMap.entrySet().stream().map(e -> e.getValue()).mapToLong(Long::longValue).sum());
 		minCoinsResponse.setAmount(requestedAmount.doubleValue());
 		return minCoinsResponse;
 
 	}
+	
+	private void updateCoins(Map<Double, Long> minCombinationsMap) {
+		for(Map.Entry<Double, Long> entry:minCombinationsMap.entrySet()) {
+			Double coin = entry.getKey();
+			Long count = entry.getValue();
+			coins.put(coin, coins.get(coin) - count);
+			currentMaxSum -= (coin * count);
+		}
+		currentMaxSum = round(currentMaxSum);
+		System.out.println("Current max sum possible : " + currentMaxSum);
+	}
 
-	public Map<Integer, Integer> minimumCoins(int targetAmount) {
-		List<List<Integer>> possibilities = coinChange(denominations, targetAmount);
-		if (possibilities == null || possibilities.isEmpty())
-			throw new PossibilitiesNotFoundException();
+	public void generateCombinations(Double[] coins, double target, List<Double> minCoinsList) {
+		List<Double> currentCombination = new ArrayList<>();
+		generate(coins, target, 0, currentCombination, minCoinsList);
+	}
 
-		possibilities.sort(Comparator.comparingInt(List::size));
+	private void generate(Double[] coins, double remaining, int start, List<Double> currentCombination,
+			List<Double> minCoinsList) {
+		remaining = round(remaining);
+		if (remaining == 0) {
 
-		Map<Integer, Integer> currMap = new HashMap<>();
-		for (List<Integer> combination : possibilities) {
-			boolean areCombinationsAvailable = true;
-			for (Integer sum : combination) {
-				if (dnmns.get(sum) > 0) {
-					if (currMap.containsKey(sum)) {
-						currMap.put(sum, currMap.get(sum) + 1);
-					} else {
-						currMap.put(sum, 1);
-					}
-					dnmns.put(sum, dnmns.get(sum) - 1);
-				} else {
-					areCombinationsAvailable = false;
-					break;
-				}
+			if (minCoinsList.size() == 0 && isWithdrawPossible(currentCombination)) {
+				minCoinsList.addAll(currentCombination);
 			}
-			if (!areCombinationsAvailable) {
-				for (Map.Entry<Integer, Integer> entry : currMap.entrySet()) {
-					Integer denomination = entry.getKey();
-					Integer count = entry.getValue();
-					dnmns.put(denomination, dnmns.get(denomination) + count);
-				}
-				currMap.clear();
+			if (minCoinsList.size() > currentCombination.size() && isWithdrawPossible(currentCombination)) {
+				minCoinsList.clear();
+				minCoinsList.addAll(currentCombination);
+				System.out.println(new Date() + " => " + minCoinsList);
+			}
+			return;
+		}
+
+		for (int i = start; i < coins.length; i++) {
+			if (coins[i] <= remaining) {
+				currentCombination.add(coins[i]);
+				generate(coins, remaining - coins[i], i, currentCombination, minCoinsList);
+				currentCombination.remove(currentCombination.size() - 1);
+			}
+		}
+	}
+
+	private boolean isWithdrawPossible(List<Double> combinations) {
+		Map<Double, Long> coinCombMap = getCoinsCountMap(combinations);
+
+		boolean isWithDrawPossible = true;
+		for (Double coin : combinations) {
+			if (coins.get(coin) >= coinCombMap.get(coin)) {
+				continue;
 			} else {
-				System.out.println(currMap);
-				for (Map.Entry<Integer, Integer> entry : currMap.entrySet()) {
-					Integer denomination = entry.getKey();
-					Integer count = entry.getValue();
-					dnmns.put(denomination, dnmns.get(denomination) + count);
-					currentMaxSum -= (count * ((denomination * 1.0) / 100));					
-				}
-				System.out.println("Current max sum possible : " + currentMaxSum);
+				isWithDrawPossible = false;
 				break;
 			}
 		}
-		return currMap;
+		return isWithDrawPossible;
 	}
 
-	public List<List<Integer>> coinChange(int[] coins, int targetAmount) {
-		List<List<Integer>>[] dp = new ArrayList[targetAmount + 1];
-		dp[0] = new ArrayList<>();
-		dp[0].add(new ArrayList<>());
-
-		for (int amount = coins[0]; amount <= targetAmount; amount++) {
-			dp[amount] = new ArrayList<>();
-			for (int coin : coins) {
-				if (coin <= amount && dp[amount - coin] != null) {
-					for (List<Integer> combination : dp[amount - coin]) {
-						List<Integer> newCombination = new ArrayList<>(combination);
-						newCombination.add(coin);
-						dp[amount].add(newCombination);
-					}
-				}
-			}
-		}
-
-		return dp[targetAmount];
+	private Map<Double, Long> getCoinsCountMap(List<Double> combinations) {
+		return combinations.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
 	}
 
-	private Map<Integer, Integer> dnmns = new HashMap<>();
-
-	public Map<Double, Integer> getCoins() {
-		return coins;
+	private static double round(double value) {
+		BigDecimal bd = BigDecimal.valueOf(value);
+		bd = bd.setScale(2, RoundingMode.HALF_UP);
+		return bd.doubleValue();
 	}
 
-	public void setCoins(Map<Double, Integer> coins) {
+	public void setCoins(Map<Double, Long> coins) {
 		this.coins = coins;
 	}
 
-	public Map<String, Integer> getCoinsInfo() {
-		return dnmns.entrySet().stream().collect(HashMap::new,
-				(m, e) -> m.put(String.format("%.2f", (e.getKey() * 1.0) / 100), e.getValue()), HashMap::putAll);
+	public Map<Double, Long> getCoins() {
+		return this.coins;
 	}
 }

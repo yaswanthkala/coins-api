@@ -33,13 +33,13 @@ public class CoinsStoreApplicationTests {
 	}
 
 	@Test
-	public void whenGetCoinsAll_thenOK() {
+	public void whenGetCoins_thenOK() {
 		get(uri + "/coins").then().assertThat().statusCode(200);
 	}
 
 	
 	@Test
-	public void whenGetInvalidMinCoinsCount_thenBadReqest() {
+	public void whenPostWithDrawCoinsWithInvalidAmount_thenBadReqest() {
 		String requestBody = "{\"amount\": \"5000.0\"}";
 		RestAssured.given().contentType(ContentType.JSON).body(requestBody).when().
 		post(uri + "/coins/withdraw").then()
@@ -48,7 +48,7 @@ public class CoinsStoreApplicationTests {
 	
 
 	@Test
-	public void whenGetMinCoinsInfo_thenOK() {
+	public void whenPostWithdrawCoins_thenOK() {
 		String requestBody = "{\"amount\": \"1.0\"}";
 		RestAssured.given().contentType(ContentType.JSON).body(requestBody).when().
 			post(uri + "/coins/withdraw").then()
